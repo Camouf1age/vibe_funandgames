@@ -10,6 +10,8 @@ Vibe coding EMP Secure
 
 Åpne `index.html` i nettleseren for å teste et enkelt HTML/JS-spill der en Field Technician løper, hopper over laptoper, dukker under sinte kunder og unngår kontrakter.
 
+Spillet kan også spilles direkte på [reksten.fun](https://reksten.fun).
+
 ## Hvordan spille
 
 - Bruk pil opp eller mellomrom for å hoppe.
