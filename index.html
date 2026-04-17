@@ -200,11 +200,10 @@
     <div class="game-area">
       <canvas id="gameCanvas" width="800" height="400"></canvas>
       <div class="instructions">
-        Skriv inn navnet ditt før du starter spillet.<br />
-        Bruk pil opp eller mellomrom for å hoppe.<br />
+        Spillet starter med en gang. Bruk pil opp eller mellomrom for å hoppe.<br />
         Bruk pil ned for å dukke under sinte kunder.<br />
         Bruk pil venstre/høyre for å løpe frem og tilbake.<br />
-        Hoppe over laptop, desktop og printer, og unngå kontrakter fra CEO-en.
+        Etter 50 poeng kommer Knut Inge med revisjon – hopp over ham.
       </div>
       <div class="footer">Trykk R for å starte på nytt etter kollisjon.</div>
     </div>
@@ -256,6 +255,7 @@
     let hitCooldown = 0;
     let awaitingInitials = false;
     let lastScoreMilestone = 0;
+    let nextCakeScore = 110;
     let animationFrameId = null;
     const highscoreKey = 'fieldTechRunnerHighscores';
     const playerNameKey = 'fieldTechRunnerPlayerName';
@@ -279,6 +279,15 @@
     const obstacleTypes = ['laptop', 'desktop', 'printer', 'customer', 'sign'];
     let spawnTimer = 0;
     let contractTimer = 0;
+    let evenEggCooldown = 0;
+
+    const evenEgg = {
+      active: false,
+      timer: 0,
+      x: 0,
+      y: 0,
+      radius: 32,
+    };
 
     const keys = {
       ArrowUp: false,
@@ -311,8 +320,8 @@
       timer: 0,
     };
 
-    function triggerCeoSpeech(duration = 100) {
-      ceoSpeech.text = ceoComments[Math.floor(Math.random() * ceoComments.length)];
+    function triggerCeoSpeech(duration = 100, text = null) {
+      ceoSpeech.text = text || ceoComments[Math.floor(Math.random() * ceoComments.length)];
       ceoSpeech.timer = duration;
     }
 
@@ -481,12 +490,12 @@
     function startGameWithName() {
       const input = document.getElementById('playerNameInput');
       const name = input.value.trim();
-      if (!name) {
-        document.getElementById('highscoreMessage').textContent = 'Skriv inn et navn for å starte.';
-        return;
+      playerName = name ? name.slice(0, 12) : '';
+      if (name) {
+        localStorage.setItem(playerNameKey, playerName);
+      } else {
+        localStorage.removeItem(playerNameKey);
       }
-      playerName = name.slice(0, 12);
-      localStorage.setItem(playerNameKey, playerName);
       resetGame();
     }
 
@@ -522,6 +531,16 @@
       content.style.transform = `translateX(${highscoreScrollX}px)`;
     }
 
+    function spawnCake() {
+      obstacles.push({
+        type: 'cake',
+        x: canvas.width + 40,
+        y: groundY - 140,
+        width: 42,
+        height: 32,
+      });
+    }
+
     function updateHighscoreScroll() {
       if (!showingHighscoreList) return;
       const content = document.getElementById('highscoreListContent');
@@ -535,7 +554,7 @@
 
     function startHighscoreListIfIdle() {
       if (!gameOver || awaitingInitials || showingHighscoreList) return;
-      if (Date.now() - gameOverStartTime > 10000) {
+      if (Date.now() - gameOverStartTime > 5000) {
         showHighscoreList();
       }
     }
@@ -556,11 +575,6 @@
     }
 
     function resetGame() {
-      if (!playerName) {
-        createBackground();
-        showNameEntry();
-        return;
-      }
       if (animationFrameId !== null) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
@@ -581,6 +595,9 @@
       backgroundObjects.length = 0;
       spawnTimer = 0;
       contractTimer = 0;
+      evenEgg.active = false;
+      evenEgg.timer = 0;
+      evenEggCooldown = 120 + Math.floor(Math.random() * 140);
       hideOverlay();
       createBackground();
       animationFrameId = requestAnimationFrame(update);
@@ -600,7 +617,10 @@
     }
 
     function spawnObstacle() {
-      const type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
+      let type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
+      if (score >= 50 && Math.random() < 0.3) {
+        type = 'knut';
+      }
       if (type === 'laptop') {
         obstacles.push({ type, x: canvas.width + 40, y: groundY - 28, width: 56, height: 28 });
       } else if (type === 'desktop') {
@@ -609,67 +629,11 @@
         obstacles.push({ type, x: canvas.width + 40, y: groundY - 30, width: 48, height: 30 });
       } else if (type === 'sign') {
         obstacles.push({ type, x: canvas.width + 40, y: groundY - 118, width: 90, height: 32 });
+      } else if (type === 'knut') {
+        obstacles.push({ type, x: canvas.width + 40, y: groundY - 80, width: 48, height: 80 });
+        triggerCeoSpeech(140, 'Knut Inge klager på revisjon!');
       } else {
         obstacles.push({ type, x: canvas.width + 40, y: groundY - 64, width: 42, height: 64 });
-      }
-    }
-
-    function drawPlayer() {
-      ctx.fillStyle = '#38bdf8';
-      const height = player.height;
-      ctx.fillRect(player.x, player.y, player.width, height);
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(player.x + 8, player.y + 12, 6, 6);
-      ctx.fillRect(player.x + 26, player.y + 12, 6, 6);
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(player.x + 6, player.y + height - 10, 10, 10);
-      ctx.fillRect(player.x + 24, player.y + height - 10, 10, 10);
-      ctx.fillStyle = '#f8b400';
-      ctx.fillRect(player.x + 10, player.y + 2, 20, 10);
-    }
-
-    function drawObstacle(obstacle) {
-      if (obstacle.type === 'laptop') {
-        ctx.fillStyle = '#facc15';
-        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-        ctx.fillStyle = '#111827';
-        ctx.fillRect(obstacle.x + 8, obstacle.y + 4, obstacle.width - 16, 10);
-        ctx.fillStyle = '#111827';
-        ctx.fillRect(obstacle.x + 10, obstacle.y + obstacle.height - 8, obstacle.width - 20, 6);
-      } else if (obstacle.type === 'customer') {
-        ctx.fillStyle = '#ef4444';
-        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-        ctx.fillStyle = '#1f2937';
-        ctx.fillRect(obstacle.x + 10, obstacle.y + 14, 8, 8);
-        ctx.fillRect(obstacle.x + 26, obstacle.y + 14, 8, 8);
-        ctx.strokeStyle = '#1f2937';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(obstacle.x + 12, obstacle.y + 44);
-        ctx.lineTo(obstacle.x + 32, obstacle.y + 44);
-        ctx.stroke();
-      } else if (obstacle.type === 'sign') {
-        ctx.fillStyle = '#22c55e';
-        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-        ctx.fillStyle = '#0f172a';
-        ctx.font = 'bold 14px Courier New, monospace';
-        ctx.fillText('DUCK', obstacle.x + 18, obstacle.y + 20);
-      } else if (obstacle.type === 'contract') {
-        ctx.fillStyle = '#f8fafc';
-        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(obstacle.x + 4, obstacle.y + 4, obstacle.width - 8, obstacle.height - 8);
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(obstacle.x + 6, obstacle.y + 5, obstacle.width - 12, 3);
-        ctx.fillRect(obstacle.x + 6, obstacle.y + 10, obstacle.width - 12, 3);
-      } else {
-        ctx.fillStyle = '#a855f7';
-        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(obstacle.x + 4, obstacle.y + 3, 26, 4);
-        ctx.fillRect(obstacle.x + 4, obstacle.y + 9, 18, 3);
-        ctx.fillRect(obstacle.x + 4, obstacle.y + 14, 10, 3);
       }
     }
 
@@ -719,6 +683,100 @@
       }
     }
 
+    function drawObstacle(obstacle) {
+      if (obstacle.type === 'laptop') {
+        ctx.fillStyle = '#facc15';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(obstacle.x + 8, obstacle.y + 4, obstacle.width - 16, 10);
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(obstacle.x + 10, obstacle.y + obstacle.height - 8, obstacle.width - 20, 6);
+      } else if (obstacle.type === 'customer') {
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.fillStyle = '#1f2937';
+        ctx.fillRect(obstacle.x + 10, obstacle.y + 14, 8, 8);
+        ctx.fillRect(obstacle.x + 26, obstacle.y + 14, 8, 8);
+        ctx.strokeStyle = '#1f2937';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(obstacle.x + 12, obstacle.y + 44);
+        ctx.lineTo(obstacle.x + 32, obstacle.y + 44);
+        ctx.stroke();
+      } else if (obstacle.type === 'sign') {
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 14px Courier New, monospace';
+        ctx.fillText('DUCK', obstacle.x + 18, obstacle.y + 20);
+      } else if (obstacle.type === 'cake') {
+        ctx.save();
+        ctx.shadowColor = 'rgba(252, 211, 77, 0.8)';
+        ctx.shadowBlur = 16;
+        ctx.fillStyle = '#fb923c';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.restore();
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(obstacle.x + 6, obstacle.y + 6, obstacle.width - 12, 10);
+        ctx.fillStyle = '#c2410c';
+        ctx.fillRect(obstacle.x + 16, obstacle.y + 16, 10, 10);
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '10px Courier New, monospace';
+        ctx.fillText('Sigrid', obstacle.x - 6, obstacle.y - 8);
+        ctx.fillText('Kake', obstacle.x - 6, obstacle.y - 18);
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        const heartX = obstacle.x + obstacle.width / 2;
+        const heartY = obstacle.y - 18;
+        ctx.moveTo(heartX, heartY);
+        ctx.bezierCurveTo(heartX + 8, heartY - 8, heartX + 20, heartY + 4, heartX, heartY + 18);
+        ctx.bezierCurveTo(heartX - 20, heartY + 4, heartX - 8, heartY - 8, heartX, heartY);
+        ctx.fill();
+      } else if (obstacle.type === 'knut') {
+        ctx.fillStyle = '#8b5cf6';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.fillStyle = '#fde68a';
+        ctx.fillRect(obstacle.x - 14, obstacle.y + 8, 18, 18);
+        ctx.fillRect(obstacle.x + obstacle.width - 4, obstacle.y + 8, 18, 18);
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(obstacle.x + 10, obstacle.y + 18, 8, 8);
+        ctx.fillRect(obstacle.x + 30, obstacle.y + 18, 8, 8);
+        ctx.fillStyle = '#fde68a';
+        ctx.fillRect(obstacle.x + 12, obstacle.y + 38, 24, 10);
+        ctx.fillStyle = '#111827';
+        ctx.font = '10px Courier New, monospace';
+        ctx.fillText('Knut Inge', obstacle.x - 14, obstacle.y + 58);
+        ctx.fillText('REVISJON', obstacle.x - 10, obstacle.y + obstacle.height + 12);
+        ctx.fillStyle = 'rgba(248, 248, 248, 0.95)';
+        ctx.fillRect(obstacle.x - 38, obstacle.y - 28, 116, 22);
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '11px Courier New, monospace';
+        ctx.fillText('Klage på revisjon!', obstacle.x - 32, obstacle.y - 12);
+        ctx.fillStyle = 'rgba(248, 248, 248, 0.95)';
+        ctx.beginPath();
+        ctx.moveTo(obstacle.x - 14, obstacle.y - 8);
+        ctx.lineTo(obstacle.x - 6, obstacle.y - 18);
+        ctx.lineTo(obstacle.x - 2, obstacle.y - 8);
+        ctx.fill();
+      } else if (obstacle.type === 'contract') {
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(obstacle.x + 4, obstacle.y + 4, obstacle.width - 8, obstacle.height - 8);
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(obstacle.x + 6, obstacle.y + 5, obstacle.width - 12, 3);
+        ctx.fillRect(obstacle.x + 6, obstacle.y + 10, obstacle.width - 12, 3);
+      } else {
+        ctx.fillStyle = '#a855f7';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(obstacle.x + 4, obstacle.y + 3, 26, 4);
+        ctx.fillRect(obstacle.x + 4, obstacle.y + 9, 18, 3);
+        ctx.fillRect(obstacle.x + 4, obstacle.y + 14, 10, 3);
+      }
+    }
+
     function checkCollision(a, b) {
       return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
     }
@@ -736,7 +794,9 @@
           obstacle.x -= speed;
           if (obstacle.x + obstacle.width < -20) {
             obstacles.splice(i, 1);
-            score += 10;
+            if (obstacle.type !== 'cake') {
+              score += 10;
+            }
           }
         }
       }
@@ -813,6 +873,38 @@
       }
     }
 
+    function triggerEvenEgg() {
+      evenEgg.active = true;
+      evenEgg.timer = 140 + Math.floor(Math.random() * 110);
+      evenEgg.x = 80 + Math.random() * (canvas.width - 160);
+      evenEgg.y = 60 + Math.random() * 70;
+    }
+
+    function drawEvenEgg() {
+      if (!evenEgg.active) return;
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = '#f472b6';
+      ctx.beginPath();
+      ctx.arc(evenEgg.x, evenEgg.y, evenEgg.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#111827';
+      ctx.beginPath();
+      ctx.arc(evenEgg.x - 10, evenEgg.y - 6, 5, 0, Math.PI * 2);
+      ctx.arc(evenEgg.x + 10, evenEgg.y - 6, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#111827';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(evenEgg.x, evenEgg.y + 6, 12, 0, Math.PI);
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '12px Courier New, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Even A.V. Hansen', evenEgg.x, evenEgg.y + 48);
+      ctx.restore();
+    }
+
     function update(timestamp) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       drawBackground();
@@ -821,13 +913,37 @@
       }
       drawCeo();
 
+      if (!gameOver) {
+        if (!evenEgg.active) {
+          evenEggCooldown -= 1;
+          if (evenEggCooldown <= 0) {
+            if (Math.random() < 0.15) {
+              triggerEvenEgg();
+            } else {
+              evenEggCooldown = 220 + Math.floor(Math.random() * 140);
+            }
+          }
+        } else {
+          evenEgg.timer -= 1;
+          if (evenEgg.timer <= 0) {
+            evenEgg.active = false;
+          }
+        }
+        drawEvenEgg();
+      }
+
       if (gameOver) {
         obstacles.forEach(drawObstacle);
         drawPlayer();
         drawHud();
         startHighscoreListIfIdle();
-        requestAnimationFrame(update);
+        updateHighscoreScroll();
+        animationFrameId = requestAnimationFrame(update);
         return;
+      }
+
+      if (showingHighscoreList) {
+        updateHighscoreScroll();
       }
 
       updatePlayer();
@@ -840,6 +956,11 @@
       if (spawnTimer > spawnLimit) {
         spawnObstacle();
         spawnTimer = 0;
+      }
+
+      while (score >= nextCakeScore) {
+        spawnCake();
+        nextCakeScore += 110;
       }
 
       if (contractTimer > 140) {
@@ -958,7 +1079,7 @@
 
     createBackground();
     updateSidebarHighscoreList();
-    showNameEntry();
+    resetGame();
   </script>
 </body>
 </html>
