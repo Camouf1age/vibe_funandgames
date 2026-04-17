@@ -7,8 +7,8 @@
   <style>
     body {
       margin: 0;
-      font-family: Arial, sans-serif;
-      background: #111;
+      font-family: 'Courier New', Courier, monospace;
+      background: #090b12;
       color: #fff;
       display: flex;
       flex-direction: column;
@@ -19,29 +19,113 @@
 
     h1 {
       margin: 16px 0 8px;
-      font-size: 28px;
+      font-size: 32px;
       text-align: center;
+      letter-spacing: 1px;
     }
 
     #gameCanvas {
-      border: 4px solid #39ff14;
-      background: linear-gradient(to top, #0b0d12 0%, #1e2431 100%);
+      border: 5px solid #4ade80;
+      background: linear-gradient(to top, #0b111e 0%, #14263b 100%);
       display: block;
+      box-shadow: 0 0 24px rgba(74, 222, 128, 0.25);
     }
 
     .instructions {
       max-width: 760px;
       margin: 12px 16px 20px;
       font-size: 14px;
-      line-height: 1.5;
+      line-height: 1.6;
       text-align: center;
-      color: #cfd8ff;
+      color: #d1d9ff;
     }
 
     .footer {
       margin-top: 12px;
       font-size: 12px;
-      color: #7f8c8d;
+      color: #8b98a7;
+    }
+
+    .highscore-overlay {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+    }
+
+    .highscore-overlay.hidden {
+      display: none;
+    }
+
+    .highscore-box {
+      background: #0f172a;
+      border: 3px solid #38bdf8;
+      padding: 28px;
+      width: 320px;
+      text-align: center;
+      box-shadow: 0 0 40px rgba(56, 189, 248, 0.25);
+    }
+
+    .highscore-box h2 {
+      margin: 0 0 16px;
+      font-size: 24px;
+    }
+
+    .highscore-box input {
+      width: 80%;
+      padding: 10px;
+      margin: 12px 0;
+      font-size: 24px;
+      text-align: center;
+      letter-spacing: 8px;
+      text-transform: uppercase;
+      background: #0b1120;
+      border: 2px solid #38bdf8;
+      color: #fff;
+    }
+
+    .highscore-box button {
+      background: #38bdf8;
+      border: none;
+      color: #0f172a;
+      padding: 10px 18px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+
+    .highscore-box .button-row {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .highscore-box .hidden {
+      display: none;
+    }
+
+    .highscore-list {
+      overflow: hidden;
+      white-space: nowrap;
+      margin-top: 16px;
+      font-family: 'Courier New', monospace;
+      font-size: 16px;
+      color: #cbd5e1;
+      border-top: 1px solid rgba(255,255,255,0.15);
+      padding-top: 12px;
+    }
+
+    .highlight {
+      color: #7dd3fc;
+      font-weight: bold;
     }
   </style>
 </head>
@@ -51,17 +135,46 @@
   <div class="instructions">
     Bruk pil opp eller mellomrom for å hoppe.<br />
     Bruk pil ned for å dukke under sinte kunder.<br />
-    Unngå laptoper og kontrakter fra CEO-en.
+    Bruk pil venstre/høyre for å løpe frem og tilbake.<br />
+    Hoppe over laptop, desktop og printer, og unngå kontrakter fra CEO-en.
   </div>
   <div class="footer">Trykk R for å starte på nytt etter kollisjon.</div>
+
+  <div id="highscoreOverlay" class="highscore-overlay hidden">
+    <div class="highscore-box">
+      <h2 id="overlayTitle">GAME OVER</h2>
+      <p id="overlayText">Trykk på High Score-knappen, eller vent 10 sekunder så ruller lista.</p>
+      <div id="overlayButtons" class="button-row">
+        <button id="showHighscoreList">High Score</button>
+        <button id="restartGame">Restart</button>
+      </div>
+
+      <div id="initialsEntry" class="hidden">
+        <p>Du har 3 bokstaver. Skriv inn initialer:</p>
+        <input id="initialsInput" type="text" maxlength="3" value="AAA" autocomplete="off" />
+        <button id="submitHighscore">Lagre</button>
+        <p id="highscoreMessage" style="color:#cbd5e1; margin-top: 10px; font-size: 13px;"></p>
+      </div>
+
+      <div id="highscoreListBox" class="highscore-list hidden">
+        <div id="highscoreListContent"></div>
+      </div>
+    </div>
+  </div>
 
   <script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const groundY = canvas.height - 60;
     let score = 0;
-    let speed = 4;
+    let speed = 3;
     let gameOver = false;
+    let lives = 3;
+    let hitCooldown = 0;
+    let awaitingInitials = false;
+    let lastScoreMilestone = 0;
+    const highscoreKey = 'fieldTechRunnerHighscores';
+    let highscoreList = loadHighscores();
 
     const player = {
       x: 80,
@@ -69,90 +182,365 @@
       width: 40,
       height: 48,
       vy: 0,
-      gravity: 0.7,
-      jumpForce: -14,
+      gravity: 0.8,
+      jumpForce: -15,
       ducking: false,
       originalHeight: 48,
     };
 
     const obstacles = [];
-    const obstacleTypes = ['laptop', 'customer', 'contract'];
+    const backgroundObjects = [];
+    const obstacleTypes = ['laptop', 'desktop', 'printer', 'customer', 'sign'];
     let spawnTimer = 0;
+    let contractTimer = 0;
 
     const keys = {
       ArrowUp: false,
       ArrowDown: false,
+      ArrowLeft: false,
+      ArrowRight: false,
       Space: false,
     };
+
+    const ceo = {
+      x: canvas.width - 120,
+      y: 40,
+      width: 80,
+      height: 50,
+      throwTimer: 0,
+      color: '#d946ef',
+    };
+
+    const ceoComments = [
+      'Gjør jobben skikkelig!',
+      'Dette er pinlig.',
+      'Hvor er fremdriften?',
+      'Ingen flere unnskyldninger!',
+      'Dette gir ikke mening!',
+      'Få det ferdig nå!',
+    ];
+
+    const ceoSpeech = {
+      text: '',
+      timer: 0,
+    };
+
+    function triggerCeoSpeech(duration = 100) {
+      ceoSpeech.text = ceoComments[Math.floor(Math.random() * ceoComments.length)];
+      ceoSpeech.timer = duration;
+    }
+
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playBeep(frequency, duration, type = 'square') {
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      osc.type = type;
+      osc.frequency.value = frequency;
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.1, audioContext.currentTime + 0.01);
+      osc.start(audioContext.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + duration / 1000);
+      osc.stop(audioContext.currentTime + duration / 1000 + 0.02);
+    }
+
+    function playSound(event) {
+      if (audioContext.state === 'suspended') {
+        audioContext.resume();
+      }
+      if (event === 'jump') {
+        playBeep(440, 120, 'triangle');
+      } else if (event === 'throw') {
+        playBeep(220, 140, 'square');
+      } else if (event === 'hit') {
+        playBeep(120, 200, 'sawtooth');
+      } else if (event === 'gameover') {
+        playBeep(150, 280, 'sine');
+      }
+    }
+
+    function loadHighscores() {
+      const stored = localStorage.getItem(highscoreKey);
+      if (!stored) return [];
+      try {
+        return JSON.parse(stored);
+      } catch {
+        return [];
+      }
+    }
+
+    function saveHighscores() {
+      localStorage.setItem(highscoreKey, JSON.stringify(highscoreList.slice(0, 5)));
+    }
+
+    function isHighscore(value) {
+      if (highscoreList.length < 5) return true;
+      return value > highscoreList[highscoreList.length - 1].score;
+    }
+
+    function addHighscore(initials, value) {
+      initials = initials.slice(0, 3).toUpperCase();
+      highscoreList.push({ initials, score: value });
+      highscoreList.sort((a, b) => b.score - a.score);
+      highscoreList = highscoreList.slice(0, 5);
+      saveHighscores();
+    }
+
+    let gameOverStartTime = 0;
+    let highscoreScrollX = 0;
+    let showingHighscoreList = false;
+
+    function showOverlay() {
+      const overlay = document.getElementById('highscoreOverlay');
+      overlay.classList.remove('hidden');
+    }
+
+    function hideOverlay() {
+      const overlay = document.getElementById('highscoreOverlay');
+      overlay.classList.add('hidden');
+    }
+
+    function showGameOverMenu() {
+      awaitingInitials = false;
+      showingHighscoreList = false;
+      gameOverStartTime = Date.now();
+      const title = document.getElementById('overlayTitle');
+      const text = document.getElementById('overlayText');
+      const buttons = document.getElementById('overlayButtons');
+      const entry = document.getElementById('initialsEntry');
+      const listBox = document.getElementById('highscoreListBox');
+      title.textContent = 'GAME OVER';
+      text.textContent = 'Trykk på High Score-knappen, eller vent 10 sekunder så ruller lista.';
+      buttons.classList.remove('hidden');
+      entry.classList.add('hidden');
+      listBox.classList.add('hidden');
+      hideHighscoreEntryMessage();
+      showOverlay();
+      highscoreScrollX = canvas.width;
+    }
+
+    function showHighscoreEntry() {
+      awaitingInitials = true;
+      showingHighscoreList = false;
+      const title = document.getElementById('overlayTitle');
+      const text = document.getElementById('overlayText');
+      const buttons = document.getElementById('overlayButtons');
+      const entry = document.getElementById('initialsEntry');
+      const listBox = document.getElementById('highscoreListBox');
+      title.textContent = 'NEW HIGH SCORE!';
+      text.textContent = `Du fikk ${score} poeng! Skriv inn initialer:`;
+      buttons.classList.add('hidden');
+      entry.classList.remove('hidden');
+      listBox.classList.add('hidden');
+      const input = document.getElementById('initialsInput');
+      input.value = 'AAA';
+      input.focus();
+      input.select();
+      hideHighscoreEntryMessage();
+    }
+
+    function hideHighscoreEntryMessage() {
+      document.getElementById('highscoreMessage').textContent = '';
+    }
+
+    function formatScoreTicker() {
+      if (highscoreList.length === 0) {
+        return 'INGEN HØY SCORE ENNÅ   ';
+      }
+      return highscoreList.map((item, index) => `${index + 1}. ${item.initials} ${item.score}`).join('   |   ') + '   ';
+    }
+
+    function showHighscoreList() {
+      awaitingInitials = false;
+      showingHighscoreList = true;
+      const title = document.getElementById('overlayTitle');
+      const text = document.getElementById('overlayText');
+      const buttons = document.getElementById('overlayButtons');
+      const entry = document.getElementById('initialsEntry');
+      const listBox = document.getElementById('highscoreListBox');
+      title.textContent = 'HIGH SCORE';
+      text.textContent = 'Høy score-lista ruller nå.';
+      buttons.classList.remove('hidden');
+      entry.classList.add('hidden');
+      listBox.classList.remove('hidden');
+      showOverlay();
+      highscoreScrollX = canvas.width;
+      const content = document.getElementById('highscoreListContent');
+      content.textContent = formatScoreTicker();
+      content.style.transform = `translateX(${highscoreScrollX}px)`;
+    }
+
+    function updateHighscoreScroll() {
+      if (!showingHighscoreList) return;
+      const content = document.getElementById('highscoreListContent');
+      if (!content) return;
+      highscoreScrollX -= 2;
+      if (highscoreScrollX < -content.offsetWidth) {
+        highscoreScrollX = canvas.width;
+      }
+      content.style.transform = `translateX(${highscoreScrollX}px)`;
+    }
+
+    function startHighscoreListIfIdle() {
+      if (!gameOver || awaitingInitials || showingHighscoreList) return;
+      if (Date.now() - gameOverStartTime > 10000) {
+        showHighscoreList();
+      }
+    }
+
+    function setGameOver() {
+      gameOver = true;
+      playSound('gameover');
+      triggerCeoSpeech(220);
+      showGameOverMenu();
+    }
 
     function resetGame() {
       score = 0;
       speed = 4;
       gameOver = false;
+      lives = 3;
+      hitCooldown = 0;
+      awaitingInitials = false;
+      lastScoreMilestone = 0;
+      player.x = 80;
       player.y = groundY - player.originalHeight;
       player.vy = 0;
       player.height = player.originalHeight;
       player.ducking = false;
       obstacles.length = 0;
+      backgroundObjects.length = 0;
       spawnTimer = 0;
+      contractTimer = 0;
+      hideOverlay();
+      createBackground();
       requestAnimationFrame(update);
+    }
+
+    function createBackground() {
+      backgroundObjects.length = 0;
+      for (let i = 0; i < 8; i++) {
+        backgroundObjects.push({
+          x: i * 160 + 20,
+          y: 240 + (i % 2) * 10,
+          width: 140,
+          height: 20,
+          speed: 0.5 + (i % 3) * 0.3,
+        });
+      }
     }
 
     function spawnObstacle() {
       const type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
       if (type === 'laptop') {
-        obstacles.push({ type, x: canvas.width + 30, y: groundY - 24, width: 48, height: 24 });
-      } else if (type === 'customer') {
-        obstacles.push({ type, x: canvas.width + 30, y: groundY - 110, width: 40, height: 48 });
+        obstacles.push({ type, x: canvas.width + 40, y: groundY - 28, width: 56, height: 28 });
+      } else if (type === 'desktop') {
+        obstacles.push({ type, x: canvas.width + 40, y: groundY - 32, width: 72, height: 32 });
+      } else if (type === 'printer') {
+        obstacles.push({ type, x: canvas.width + 40, y: groundY - 30, width: 48, height: 30 });
+      } else if (type === 'sign') {
+        obstacles.push({ type, x: canvas.width + 40, y: groundY - 118, width: 90, height: 32 });
       } else {
-        obstacles.push({ type, x: canvas.width + 30, y: groundY - 100, width: 28, height: 16 });
+        obstacles.push({ type, x: canvas.width + 40, y: groundY - 64, width: 42, height: 64 });
       }
     }
 
     function drawPlayer() {
-      ctx.fillStyle = '#00d8ff';
-      ctx.fillRect(player.x, player.y, player.width, player.height);
+      ctx.fillStyle = '#38bdf8';
+      const height = player.height;
+      ctx.fillRect(player.x, player.y, player.width, height);
       ctx.fillStyle = '#fff';
-      ctx.fillRect(player.x + 8, player.y + 10, 6, 6);
-      ctx.fillRect(player.x + 26, player.y + 10, 6, 6);
+      ctx.fillRect(player.x + 8, player.y + 12, 6, 6);
+      ctx.fillRect(player.x + 26, player.y + 12, 6, 6);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(player.x + 6, player.y + height - 10, 10, 10);
+      ctx.fillRect(player.x + 24, player.y + height - 10, 10, 10);
+      ctx.fillStyle = '#f8b400';
+      ctx.fillRect(player.x + 10, player.y + 2, 20, 10);
     }
 
     function drawObstacle(obstacle) {
       if (obstacle.type === 'laptop') {
-        ctx.fillStyle = '#ffcc00';
+        ctx.fillStyle = '#facc15';
         ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-        ctx.fillStyle = '#333';
-        ctx.fillRect(obstacle.x + 6, obstacle.y + 4, obstacle.width - 12, 12);
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(obstacle.x + 8, obstacle.y + 4, obstacle.width - 16, 10);
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(obstacle.x + 10, obstacle.y + obstacle.height - 8, obstacle.width - 20, 6);
       } else if (obstacle.type === 'customer') {
-        ctx.fillStyle = '#ff4c4c';
+        ctx.fillStyle = '#ef4444';
         ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-        ctx.fillStyle = '#222';
-        ctx.fillRect(obstacle.x + 8, obstacle.y + 12, 6, 6);
+        ctx.fillStyle = '#1f2937';
+        ctx.fillRect(obstacle.x + 10, obstacle.y + 14, 8, 8);
+        ctx.fillRect(obstacle.x + 26, obstacle.y + 14, 8, 8);
+        ctx.strokeStyle = '#1f2937';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(obstacle.x + 12, obstacle.y + 44);
+        ctx.lineTo(obstacle.x + 32, obstacle.y + 44);
+        ctx.stroke();
+      } else if (obstacle.type === 'sign') {
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 14px Courier New, monospace';
+        ctx.fillText('DUCK', obstacle.x + 18, obstacle.y + 20);
+      } else if (obstacle.type === 'contract') {
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(obstacle.x + 4, obstacle.y + 4, obstacle.width - 8, obstacle.height - 8);
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(obstacle.x + 6, obstacle.y + 5, obstacle.width - 12, 3);
+        ctx.fillRect(obstacle.x + 6, obstacle.y + 10, obstacle.width - 12, 3);
       } else {
-        ctx.fillStyle = '#8e44ad';
+        ctx.fillStyle = '#a855f7';
         ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(obstacle.x + 4, obstacle.y + 4, 20, 8);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(obstacle.x + 4, obstacle.y + 3, 26, 4);
+        ctx.fillRect(obstacle.x + 4, obstacle.y + 9, 18, 3);
+        ctx.fillRect(obstacle.x + 4, obstacle.y + 14, 10, 3);
       }
     }
 
+    function drawBackground() {
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (const item of backgroundObjects) {
+        ctx.fillStyle = 'rgba(99, 102, 241, 0.15)';
+        ctx.fillRect(item.x, item.y, item.width, item.height);
+        item.x -= item.speed;
+        if (item.x + item.width < 0) {
+          item.x = canvas.width + 20;
+        }
+      }
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+      ctx.fillStyle = '#64748b';
+      ctx.fillRect(0, groundY + 4, canvas.width, 6);
+    }
+
     function updatePlayer() {
-      if ((keys.Space || keys.ArrowUp) && player.y + player.height >= groundY && !player.ducking) {
+      const onGround = player.y + player.height >= groundY;
+      if ((keys.Space || keys.ArrowUp) && onGround && !player.ducking) {
         player.vy = player.jumpForce;
+        playSound('jump');
       }
 
-      if (keys.ArrowDown && player.y + player.height < groundY) {
-        player.ducking = true;
+      player.ducking = keys.ArrowDown && onGround;
+      player.height = player.ducking ? 28 : player.originalHeight;
+      if (player.y + player.height > groundY) {
+        player.y = groundY - player.height;
       }
 
-      if (!keys.ArrowDown) {
-        player.ducking = false;
+      if (keys.ArrowLeft) {
+        player.x = Math.max(10, player.x - speed * 0.9);
       }
-
-      if (player.ducking) {
-        player.height = 28;
-      } else {
-        player.height = player.originalHeight;
+      if (keys.ArrowRight) {
+        player.x = Math.min(canvas.width - player.width - 10, player.x + speed * 0.9);
       }
 
       player.vy += player.gravity;
@@ -170,62 +558,162 @@
 
     function updateObstacles() {
       for (let i = obstacles.length - 1; i >= 0; i--) {
-        obstacles[i].x -= speed;
-        if (obstacles[i].x + obstacles[i].width < -10) {
-          obstacles.splice(i, 1);
-          score += 10;
+        const obstacle = obstacles[i];
+        if (obstacle.type === 'contract') {
+          obstacle.y += obstacle.vy;
+          obstacle.x += obstacle.vx;
+          if (obstacle.y > canvas.height || obstacle.x + obstacle.width < 0 || obstacle.x > canvas.width) {
+            obstacles.splice(i, 1);
+          }
+        } else {
+          obstacle.x -= speed;
+          if (obstacle.x + obstacle.width < -20) {
+            obstacles.splice(i, 1);
+            score += 10;
+          }
         }
       }
     }
 
+    function handleCollision() {
+      if (hitCooldown > 0 || gameOver || awaitingInitials) return;
+      playSound('hit');
+      lives -= 1;
+      hitCooldown = 90;
+      if (lives <= 0) {
+        setGameOver();
+        return;
+      }
+      obstacles.length = 0;
+      player.x = 80;
+      player.y = groundY - player.height;
+      player.vy = 0;
+    }
+
     function drawHud() {
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = '#e2e8f0';
       ctx.font = '18px Arial';
       ctx.fillText(`Poeng: ${score}`, 16, 30);
       ctx.fillText(`Hastighet: ${speed.toFixed(1)}`, 16, 56);
+      ctx.fillText(`Liv: ${lives}`, 16, 82);
+      ctx.fillText(`CEO: kaster kontrakter`, 16, 108);
       if (gameOver) {
-        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = 'bold 42px Arial';
+        ctx.fillText('GAME OVER', canvas.width / 2 - 150, canvas.height / 2 - 20);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeText('GAME OVER', canvas.width / 2 - 150, canvas.height / 2 - 20);
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 34px Arial';
-        ctx.fillText('Game Over', canvas.width / 2 - 100, canvas.height / 2 - 10);
         ctx.font = '18px Arial';
-        ctx.fillText('Trykk R for å prøve igjen', canvas.width / 2 - 115, canvas.height / 2 + 24);
+        ctx.fillText('Du døde 3 ganger. Trykk R for å starte på nytt.', canvas.width / 2 - 210, canvas.height / 2 + 24);
+      }
+    }
+
+    function drawCeo() {
+      ctx.fillStyle = ceo.color;
+      ctx.fillRect(ceo.x, ceo.y, ceo.width, ceo.height);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(ceo.x + 12, ceo.y + 14, 12, 12);
+      ctx.fillRect(ceo.x + 44, ceo.y + 14, 12, 12);
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(ceo.x + 28, ceo.y + 30, 24, 6);
+      ctx.fillStyle = '#f1f5f9';
+      ctx.fillRect(ceo.x + 8, ceo.y + 8, 20, 4);
+      ctx.fillRect(ceo.x + 52, ceo.y + 8, 20, 4);
+
+      // Name tag
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px Courier New, monospace';
+      ctx.fillText('S.R.L.H', ceo.x + 6, ceo.y + ceo.height + 16);
+
+      if (ceoSpeech.timer > 0) {
+        ctx.fillStyle = 'rgba(248, 248, 248, 0.95)';
+        const bubbleWidth = Math.min(220, ctx.measureText(ceoSpeech.text).width + 28);
+        ctx.fillRect(ceo.x - bubbleWidth + 40, ceo.y - 38, bubbleWidth, 28);
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '12px Courier New, monospace';
+        ctx.fillText(ceoSpeech.text, ceo.x - bubbleWidth + 48, ceo.y - 18);
+        ctx.fillStyle = 'rgba(248, 248, 248, 0.95)';
+        ctx.beginPath();
+        ctx.moveTo(ceo.x + 6, ceo.y + 2);
+        ctx.lineTo(ceo.x + 12, ceo.y - 10);
+        ctx.lineTo(ceo.x + 22, ceo.y + 2);
+        ctx.fill();
       }
     }
 
     function update(timestamp) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBackground();
+      if (ceoSpeech.timer > 0) {
+        ceoSpeech.timer -= 1;
+      }
+      drawCeo();
+
       if (gameOver) {
+        obstacles.forEach(drawObstacle);
+        drawPlayer();
         drawHud();
+        startHighscoreListIfIdle();
+        requestAnimationFrame(update);
         return;
       }
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#1c2434';
-      ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
-      ctx.fillStyle = '#444';
-      ctx.fillRect(0, groundY, canvas.width, 4);
 
       updatePlayer();
       drawPlayer();
 
       spawnTimer += 1;
-      if (spawnTimer > 90) {
+      contractTimer += 1;
+      const spawnLimit = Math.max(70, 110 - Math.floor(speed * 1.5));
+
+      if (spawnTimer > spawnLimit) {
         spawnObstacle();
         spawnTimer = 0;
       }
 
+      if (contractTimer > 140) {
+        const targetX = player.x + player.width / 2 + (Math.random() * 120 - 60);
+        const targetY = player.y + player.height / 2;
+        const startX = ceo.x + ceo.width / 2 - 16;
+        const startY = ceo.y + ceo.height;
+        const dx = targetX - startX;
+        const dy = targetY - startY;
+        const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+        const speedFactor = 4.5 + Math.random() * 1.25;
+        obstacles.push({
+          type: 'contract',
+          x: startX,
+          y: startY,
+          width: 32,
+          height: 18,
+          vx: (dx / dist) * speedFactor,
+          vy: (dy / dist) * speedFactor,
+        });
+        contractTimer = 0;
+        playSound('throw');
+        triggerCeoSpeech(120);
+      }
+
       updateObstacles();
+
+      if (hitCooldown > 0) {
+        hitCooldown -= 1;
+      }
 
       for (const obstacle of obstacles) {
         drawObstacle(obstacle);
         if (checkCollision(player, obstacle)) {
-          gameOver = true;
+          handleCollision();
+          break;
         }
       }
 
-      if (score > 0 && score % 150 === 0) {
-        speed = 4 + score / 150;
+      const newSpeed = 4 + Math.floor(score / 80);
+      if (newSpeed > speed) {
+        speed = newSpeed;
       }
 
       drawHud();
@@ -240,6 +728,12 @@
       if (event.code === 'ArrowDown') {
         keys.ArrowDown = true;
       }
+      if (event.code === 'ArrowLeft') {
+        keys.ArrowLeft = true;
+      }
+      if (event.code === 'ArrowRight') {
+        keys.ArrowRight = true;
+      }
       if (event.code === 'KeyR' && gameOver) {
         resetGame();
       }
@@ -253,8 +747,34 @@
       if (event.code === 'ArrowDown') {
         keys.ArrowDown = false;
       }
+      if (event.code === 'ArrowLeft') {
+        keys.ArrowLeft = false;
+      }
+      if (event.code === 'ArrowRight') {
+        keys.ArrowRight = false;
+      }
     });
 
+    document.getElementById('submitHighscore').addEventListener('click', () => {
+      const input = document.getElementById('initialsInput');
+      const initials = input.value.trim().toUpperCase().slice(0, 3) || 'AAA';
+      addHighscore(initials, score);
+      showHighscoreList();
+    });
+
+    document.getElementById('showHighscoreList').addEventListener('click', () => {
+      showHighscoreList();
+    });
+
+    document.getElementById('restartGame').addEventListener('click', () => {
+      resetGame();
+    });
+
+    document.getElementById('initialsInput').addEventListener('input', (event) => {
+      event.target.value = event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
+    });
+
+    createBackground();
     resetGame();
   </script>
 </body>
