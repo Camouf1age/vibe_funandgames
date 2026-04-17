@@ -46,6 +46,71 @@
       color: #8b98a7;
     }
 
+    .game-layout {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .game-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      max-width: 800px;
+    }
+
+    .sidebar {
+      min-width: 220px;
+      background: rgba(15, 23, 42, 0.92);
+      border: 2px solid #38bdf8;
+      padding: 16px;
+      box-shadow: 0 0 30px rgba(56, 189, 248, 0.2);
+      border-radius: 8px;
+    }
+
+    .sidebar h2 {
+      margin-top: 0;
+      margin-bottom: 12px;
+      font-size: 20px;
+      text-align: center;
+    }
+
+    .sidebar-score-list {
+      display: grid;
+      gap: 8px;
+      color: #cbd5e1;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+    }
+
+    .sidebar-score-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      background: rgba(255,255,255,0.04);
+      padding: 8px 10px;
+      border-radius: 6px;
+    }
+
+    .sidebar-score-rank {
+      color: #7dd3fc;
+      width: 24px;
+    }
+
+    .sidebar-score-name {
+      flex: 1;
+      text-align: left;
+      text-transform: uppercase;
+    }
+
+    .sidebar-score-value {
+      color: #f8fafc;
+      min-width: 40px;
+      text-align: right;
+    }
+
     .highscore-overlay {
       position: fixed;
       left: 0;
@@ -131,14 +196,23 @@
 </head>
 <body>
   <h1>Field Tech Runner</h1>
-  <canvas id="gameCanvas" width="800" height="400"></canvas>
-  <div class="instructions">
-    Bruk pil opp eller mellomrom for å hoppe.<br />
-    Bruk pil ned for å dukke under sinte kunder.<br />
-    Bruk pil venstre/høyre for å løpe frem og tilbake.<br />
-    Hoppe over laptop, desktop og printer, og unngå kontrakter fra CEO-en.
+  <div class="game-layout">
+    <div class="game-area">
+      <canvas id="gameCanvas" width="800" height="400"></canvas>
+      <div class="instructions">
+        Skriv inn navnet ditt før du starter spillet.<br />
+        Bruk pil opp eller mellomrom for å hoppe.<br />
+        Bruk pil ned for å dukke under sinte kunder.<br />
+        Bruk pil venstre/høyre for å løpe frem og tilbake.<br />
+        Hoppe over laptop, desktop og printer, og unngå kontrakter fra CEO-en.
+      </div>
+      <div class="footer">Trykk R for å starte på nytt etter kollisjon.</div>
+    </div>
+    <aside class="sidebar">
+      <h2>High Score</h2>
+      <div id="sidebarHighscoreList" class="sidebar-score-list"></div>
+    </aside>
   </div>
-  <div class="footer">Trykk R for å starte på nytt etter kollisjon.</div>
 
   <div id="highscoreOverlay" class="highscore-overlay hidden">
     <div class="highscore-box">
@@ -149,11 +223,20 @@
         <button id="restartGame">Restart</button>
       </div>
 
+        <div id="nameEntry" class="hidden">
+        <p>Skriv inn navnet ditt før spillet starter:</p>
+        <input id="playerNameInput" type="text" maxlength="12" value="" autocomplete="off" />
+        <div class="button-row">
+          <button id="startGame">Start</button>
+          <button id="showHighscoreFromStart">Se High Score</button>
+        </div>
+        <p id="highscoreMessage" style="color:#cbd5e1; margin-top: 10px; font-size: 13px;"></p>
+      </div>
+
       <div id="initialsEntry" class="hidden">
         <p>Du har 3 bokstaver. Skriv inn initialer:</p>
         <input id="initialsInput" type="text" maxlength="3" value="AAA" autocomplete="off" />
         <button id="submitHighscore">Lagre</button>
-        <p id="highscoreMessage" style="color:#cbd5e1; margin-top: 10px; font-size: 13px;"></p>
       </div>
 
       <div id="highscoreListBox" class="highscore-list hidden">
@@ -173,7 +256,10 @@
     let hitCooldown = 0;
     let awaitingInitials = false;
     let lastScoreMilestone = 0;
+    let animationFrameId = null;
     const highscoreKey = 'fieldTechRunnerHighscores';
+    const playerNameKey = 'fieldTechRunnerPlayerName';
+    let playerName = localStorage.getItem(playerNameKey) || '';
     let highscoreList = loadHighscores();
 
     const player = {
@@ -273,6 +359,23 @@
 
     function saveHighscores() {
       localStorage.setItem(highscoreKey, JSON.stringify(highscoreList.slice(0, 5)));
+      updateSidebarHighscoreList();
+    }
+
+    function updateSidebarHighscoreList() {
+      const sidebar = document.getElementById('sidebarHighscoreList');
+      if (!sidebar) return;
+      if (highscoreList.length === 0) {
+        sidebar.innerHTML = '<p>Ingen high score ennå.</p>';
+        return;
+      }
+      sidebar.innerHTML = highscoreList.map((item, index) => `
+        <div class="sidebar-score-item">
+          <span class="sidebar-score-rank">${index + 1}.</span>
+          <span class="sidebar-score-name">${item.initials}</span>
+          <span class="sidebar-score-value">${item.score}</span>
+        </div>
+      `).join('');
     }
 
     function isHighscore(value) {
@@ -297,12 +400,19 @@
       overlay.classList.remove('hidden');
     }
 
+    function getHighscorePlacement(value) {
+      const allScores = [...highscoreList, { initials: '', score: value }];
+      allScores.sort((a, b) => b.score - a.score);
+      const index = allScores.findIndex((item) => item.score === value);
+      return index === -1 ? null : index + 1;
+    }
+
     function hideOverlay() {
       const overlay = document.getElementById('highscoreOverlay');
       overlay.classList.add('hidden');
     }
 
-    function showGameOverMenu() {
+    function showGameOverMenu(message = 'Trykk på High Score-knappen, eller vent 10 sekunder så ruller lista.') {
       awaitingInitials = false;
       showingHighscoreList = false;
       gameOverStartTime = Date.now();
@@ -312,9 +422,10 @@
       const entry = document.getElementById('initialsEntry');
       const listBox = document.getElementById('highscoreListBox');
       title.textContent = 'GAME OVER';
-      text.textContent = 'Trykk på High Score-knappen, eller vent 10 sekunder så ruller lista.';
+      text.textContent = message;
       buttons.classList.remove('hidden');
       entry.classList.add('hidden');
+      document.getElementById('nameEntry').classList.add('hidden');
       listBox.classList.add('hidden');
       hideHighscoreEntryMessage();
       showOverlay();
@@ -328,17 +439,55 @@
       const text = document.getElementById('overlayText');
       const buttons = document.getElementById('overlayButtons');
       const entry = document.getElementById('initialsEntry');
+      const nameEntry = document.getElementById('nameEntry');
       const listBox = document.getElementById('highscoreListBox');
       title.textContent = 'NEW HIGH SCORE!';
       text.textContent = `Du fikk ${score} poeng! Skriv inn initialer:`;
       buttons.classList.add('hidden');
       entry.classList.remove('hidden');
+      nameEntry.classList.add('hidden');
       listBox.classList.add('hidden');
       const input = document.getElementById('initialsInput');
       input.value = 'AAA';
       input.focus();
       input.select();
       hideHighscoreEntryMessage();
+      showOverlay();
+    }
+
+    function showNameEntry() {
+      awaitingInitials = false;
+      showingHighscoreList = false;
+      const title = document.getElementById('overlayTitle');
+      const text = document.getElementById('overlayText');
+      const buttons = document.getElementById('overlayButtons');
+      const entry = document.getElementById('initialsEntry');
+      const nameEntry = document.getElementById('nameEntry');
+      const listBox = document.getElementById('highscoreListBox');
+      title.textContent = 'VELKOMMEN';
+      text.textContent = 'Skriv inn navnet ditt før spillet starter.';
+      buttons.classList.add('hidden');
+      entry.classList.add('hidden');
+      nameEntry.classList.remove('hidden');
+      listBox.classList.add('hidden');
+      const input = document.getElementById('playerNameInput');
+      input.value = playerName;
+      input.focus();
+      input.select();
+      hideHighscoreEntryMessage();
+      showOverlay();
+    }
+
+    function startGameWithName() {
+      const input = document.getElementById('playerNameInput');
+      const name = input.value.trim();
+      if (!name) {
+        document.getElementById('highscoreMessage').textContent = 'Skriv inn et navn for å starte.';
+        return;
+      }
+      playerName = name.slice(0, 12);
+      localStorage.setItem(playerNameKey, playerName);
+      resetGame();
     }
 
     function hideHighscoreEntryMessage() {
@@ -364,6 +513,7 @@
       text.textContent = 'Høy score-lista ruller nå.';
       buttons.classList.remove('hidden');
       entry.classList.add('hidden');
+      document.getElementById('nameEntry').classList.add('hidden');
       listBox.classList.remove('hidden');
       showOverlay();
       highscoreScrollX = canvas.width;
@@ -394,12 +544,29 @@
       gameOver = true;
       playSound('gameover');
       triggerCeoSpeech(220);
-      showGameOverMenu();
+      if (score > 0 && isHighscore(score)) {
+        showHighscoreEntry();
+      } else {
+        const placement = getHighscorePlacement(score);
+        const message = score > 0 && placement && placement <= 5
+          ? `Game over! Du kom på plass ${placement} i highscore-lista.`
+          : 'Game over! Du nådde ikke topp 5 i highscore.';
+        showGameOverMenu(message);
+      }
     }
 
     function resetGame() {
+      if (!playerName) {
+        createBackground();
+        showNameEntry();
+        return;
+      }
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
       score = 0;
-      speed = 4;
+      speed = 3;
       gameOver = false;
       lives = 3;
       hitCooldown = 0;
@@ -416,7 +583,7 @@
       contractTimer = 0;
       hideOverlay();
       createBackground();
-      requestAnimationFrame(update);
+      animationFrameId = requestAnimationFrame(update);
     }
 
     function createBackground() {
@@ -596,7 +763,8 @@
       ctx.fillText(`Poeng: ${score}`, 16, 30);
       ctx.fillText(`Hastighet: ${speed.toFixed(1)}`, 16, 56);
       ctx.fillText(`Liv: ${lives}`, 16, 82);
-      ctx.fillText(`CEO: kaster kontrakter`, 16, 108);
+      ctx.fillText(`Navn: ${playerName || '---'}`, 16, 108);
+      ctx.fillText(`CEO: kaster kontrakter`, 16, 134);
       if (gameOver) {
         ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -717,7 +885,7 @@
       }
 
       drawHud();
-      requestAnimationFrame(update);
+      animationFrameId = requestAnimationFrame(update);
     }
 
     document.addEventListener('keydown', (event) => {
@@ -766,6 +934,20 @@
       showHighscoreList();
     });
 
+    document.getElementById('startGame').addEventListener('click', () => {
+      startGameWithName();
+    });
+
+    document.getElementById('showHighscoreFromStart').addEventListener('click', () => {
+      showHighscoreList();
+    });
+
+    document.getElementById('playerNameInput').addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        startGameWithName();
+      }
+    });
+
     document.getElementById('restartGame').addEventListener('click', () => {
       resetGame();
     });
@@ -775,7 +957,8 @@
     });
 
     createBackground();
-    resetGame();
+    updateSidebarHighscoreList();
+    showNameEntry();
   </script>
 </body>
 </html>
