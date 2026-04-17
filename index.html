@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Field Tech Runner</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    h1 {
+      margin: 16px 0 8px;
+      font-size: 28px;
+      text-align: center;
+    }
+
+    #gameCanvas {
+      border: 4px solid #39ff14;
+      background: linear-gradient(to top, #0b0d12 0%, #1e2431 100%);
+      display: block;
+    }
+
+    .instructions {
+      max-width: 760px;
+      margin: 12px 16px 20px;
+      font-size: 14px;
+      line-height: 1.5;
+      text-align: center;
+      color: #cfd8ff;
+    }
+
+    .footer {
+      margin-top: 12px;
+      font-size: 12px;
+      color: #7f8c8d;
+    }
+  </style>
+</head>
+<body>
+  <h1>Field Tech Runner</h1>
+  <canvas id="gameCanvas" width="800" height="400"></canvas>
+  <div class="instructions">
+    Bruk pil opp eller mellomrom for å hoppe.<br />
+    Bruk pil ned for å dukke under sinte kunder.<br />
+    Unngå laptoper og kontrakter fra CEO-en.
+  </div>
+  <div class="footer">Trykk R for å starte på nytt etter kollisjon.</div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const groundY = canvas.height - 60;
+    let score = 0;
+    let speed = 4;
+    let gameOver = false;
+
+    const player = {
+      x: 80,
+      y: groundY - 48,
+      width: 40,
+      height: 48,
+      vy: 0,
+      gravity: 0.7,
+      jumpForce: -14,
+      ducking: false,
+      originalHeight: 48,
+    };
+
+    const obstacles = [];
+    const obstacleTypes = ['laptop', 'customer', 'contract'];
+    let spawnTimer = 0;
+
+    const keys = {
+      ArrowUp: false,
+      ArrowDown: false,
+      Space: false,
+    };
+
+    function resetGame() {
+      score = 0;
+      speed = 4;
+      gameOver = false;
+      player.y = groundY - player.originalHeight;
+      player.vy = 0;
+      player.height = player.originalHeight;
+      player.ducking = false;
+      obstacles.length = 0;
+      spawnTimer = 0;
+      requestAnimationFrame(update);
+    }
+
+    function spawnObstacle() {
+      const type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
+      if (type === 'laptop') {
+        obstacles.push({ type, x: canvas.width + 30, y: groundY - 24, width: 48, height: 24 });
+      } else if (type === 'customer') {
+        obstacles.push({ type, x: canvas.width + 30, y: groundY - 110, width: 40, height: 48 });
+      } else {
+        obstacles.push({ type, x: canvas.width + 30, y: groundY - 100, width: 28, height: 16 });
+      }
+    }
+
+    function drawPlayer() {
+      ctx.fillStyle = '#00d8ff';
+      ctx.fillRect(player.x, player.y, player.width, player.height);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(player.x + 8, player.y + 10, 6, 6);
+      ctx.fillRect(player.x + 26, player.y + 10, 6, 6);
+    }
+
+    function drawObstacle(obstacle) {
+      if (obstacle.type === 'laptop') {
+        ctx.fillStyle = '#ffcc00';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.fillStyle = '#333';
+        ctx.fillRect(obstacle.x + 6, obstacle.y + 4, obstacle.width - 12, 12);
+      } else if (obstacle.type === 'customer') {
+        ctx.fillStyle = '#ff4c4c';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.fillStyle = '#222';
+        ctx.fillRect(obstacle.x + 8, obstacle.y + 12, 6, 6);
+      } else {
+        ctx.fillStyle = '#8e44ad';
+        ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(obstacle.x + 4, obstacle.y + 4, 20, 8);
+      }
+    }
+
+    function updatePlayer() {
+      if ((keys.Space || keys.ArrowUp) && player.y + player.height >= groundY && !player.ducking) {
+        player.vy = player.jumpForce;
+      }
+
+      if (keys.ArrowDown && player.y + player.height < groundY) {
+        player.ducking = true;
+      }
+
+      if (!keys.ArrowDown) {
+        player.ducking = false;
+      }
+
+      if (player.ducking) {
+        player.height = 28;
+      } else {
+        player.height = player.originalHeight;
+      }
+
+      player.vy += player.gravity;
+      player.y += player.vy;
+
+      if (player.y + player.height > groundY) {
+        player.y = groundY - player.height;
+        player.vy = 0;
+      }
+    }
+
+    function checkCollision(a, b) {
+      return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    }
+
+    function updateObstacles() {
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        obstacles[i].x -= speed;
+        if (obstacles[i].x + obstacles[i].width < -10) {
+          obstacles.splice(i, 1);
+          score += 10;
+        }
+      }
+    }
+
+    function drawHud() {
+      ctx.fillStyle = '#fff';
+      ctx.font = '18px Arial';
+      ctx.fillText(`Poeng: ${score}`, 16, 30);
+      ctx.fillText(`Hastighet: ${speed.toFixed(1)}`, 16, 56);
+      if (gameOver) {
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 34px Arial';
+        ctx.fillText('Game Over', canvas.width / 2 - 100, canvas.height / 2 - 10);
+        ctx.font = '18px Arial';
+        ctx.fillText('Trykk R for å prøve igjen', canvas.width / 2 - 115, canvas.height / 2 + 24);
+      }
+    }
+
+    function update(timestamp) {
+      if (gameOver) {
+        drawHud();
+        return;
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#1c2434';
+      ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+      ctx.fillStyle = '#444';
+      ctx.fillRect(0, groundY, canvas.width, 4);
+
+      updatePlayer();
+      drawPlayer();
+
+      spawnTimer += 1;
+      if (spawnTimer > 90) {
+        spawnObstacle();
+        spawnTimer = 0;
+      }
+
+      updateObstacles();
+
+      for (const obstacle of obstacles) {
+        drawObstacle(obstacle);
+        if (checkCollision(player, obstacle)) {
+          gameOver = true;
+        }
+      }
+
+      if (score > 0 && score % 150 === 0) {
+        speed = 4 + score / 150;
+      }
+
+      drawHud();
+      requestAnimationFrame(update);
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.code === 'ArrowUp' || event.code === 'Space') {
+        keys.ArrowUp = true;
+        keys.Space = true;
+      }
+      if (event.code === 'ArrowDown') {
+        keys.ArrowDown = true;
+      }
+      if (event.code === 'KeyR' && gameOver) {
+        resetGame();
+      }
+    });
+
+    document.addEventListener('keyup', (event) => {
+      if (event.code === 'ArrowUp' || event.code === 'Space') {
+        keys.ArrowUp = false;
+        keys.Space = false;
+      }
+      if (event.code === 'ArrowDown') {
+        keys.ArrowDown = false;
+      }
+    });
+
+    resetGame();
+  </script>
+</body>
+</html>
