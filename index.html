@@ -260,7 +260,7 @@
     const highscoreKey = 'fieldTechRunnerHighscores';
     const playerNameKey = 'fieldTechRunnerPlayerName';
     let playerName = localStorage.getItem(playerNameKey) || '';
-    let highscoreList = loadHighscores();
+    let highscoreList = [];
 
     const player = {
       x: 80,
@@ -325,25 +325,40 @@
       ceoSpeech.timer = duration;
     }
 
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    let audioContext = null;
+
+    function getAudioContext() {
+      if (!audioContext) {
+        try {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+          return null;
+        }
+      }
+      return audioContext;
+    }
 
     function playBeep(frequency, duration, type = 'square') {
-      const osc = audioContext.createOscillator();
-      const gain = audioContext.createGain();
+      const ctx = getAudioContext();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
       osc.type = type;
       osc.frequency.value = frequency;
       osc.connect(gain);
-      gain.connect(audioContext.destination);
-      gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.1, audioContext.currentTime + 0.01);
-      osc.start(audioContext.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + duration / 1000);
-      osc.stop(audioContext.currentTime + duration / 1000 + 0.02);
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.1, ctx.currentTime + 0.01);
+      osc.start(ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration / 1000);
+      osc.stop(ctx.currentTime + duration / 1000 + 0.02);
     }
 
     function playSound(event) {
-      if (audioContext.state === 'suspended') {
-        audioContext.resume();
+      const ac = getAudioContext();
+      if (!ac) return;
+      if (ac.state === 'suspended') {
+        ac.resume();
       }
       if (event === 'jump') {
         playBeep(440, 120, 'triangle');
@@ -356,18 +371,28 @@
       }
     }
 
-    function loadHighscores() {
-      const stored = localStorage.getItem(highscoreKey);
-      if (!stored) return [];
+    async function loadHighscores() {
       try {
-        return JSON.parse(stored);
+        const res = await fetch('scores.php');
+        return await res.json();
       } catch {
         return [];
       }
     }
 
-    function saveHighscores() {
-      localStorage.setItem(highscoreKey, JSON.stringify(highscoreList.slice(0, 5)));
+    async function saveHighscores(initials, score) {
+      try {
+        const res = await fetch('scores.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initials, score }),
+        });
+        highscoreList = await res.json();
+      } catch {
+        highscoreList.push({ initials, score });
+        highscoreList.sort((a, b) => b.score - a.score);
+        highscoreList = highscoreList.slice(0, 10);
+      }
       updateSidebarHighscoreList();
     }
 
@@ -388,16 +413,12 @@
     }
 
     function isHighscore(value) {
-      if (highscoreList.length < 5) return true;
+      if (highscoreList.length < 10) return true;
       return value > highscoreList[highscoreList.length - 1].score;
     }
 
-    function addHighscore(initials, value) {
-      initials = initials.slice(0, 3).toUpperCase();
-      highscoreList.push({ initials, score: value });
-      highscoreList.sort((a, b) => b.score - a.score);
-      highscoreList = highscoreList.slice(0, 5);
-      saveHighscores();
+    async function addHighscore(initials, value) {
+      await saveHighscores(initials, value);
     }
 
     let gameOverStartTime = 0;
@@ -680,6 +701,32 @@
       if (player.y + player.height > groundY) {
         player.y = groundY - player.height;
         player.vy = 0;
+      }
+    }
+
+    function drawPlayer() {
+      const flash = hitCooldown > 0 && Math.floor(hitCooldown / 6) % 2 === 0;
+      if (flash) return;
+      const px = player.x, py = player.y, pw = player.width, ph = player.height;
+      // body
+      ctx.fillStyle = '#00d4aa';
+      ctx.fillRect(px, py, pw, ph);
+      if (!player.ducking) {
+        // visor/eyes
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(px + 8, py + 10, 8, 8);
+        ctx.fillRect(px + 24, py + 10, 8, 8);
+        // badge
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillRect(px + 12, py + 24, 16, 10);
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '7px Courier New, monospace';
+        ctx.fillText('EMP', px + 14, py + 32);
+      } else {
+        // ducking: just eyes
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(px + 6, py + 8, 8, 8);
+        ctx.fillRect(px + 22, py + 8, 8, 8);
       }
     }
 
@@ -992,10 +1039,18 @@
         hitCooldown -= 1;
       }
 
-      for (const obstacle of obstacles) {
+      for (let i = 0; i < obstacles.length; i++) {
+        const obstacle = obstacles[i];
         drawObstacle(obstacle);
         if (checkCollision(player, obstacle)) {
-          handleCollision();
+          if (obstacle.type === 'cake') {
+            obstacles.splice(i, 1);
+            lives = Math.min(lives + 1, 5);
+            triggerCeoSpeech(100, 'Sigrid er snill! +1 liv!');
+            playSound('jump');
+          } else {
+            handleCollision();
+          }
           break;
         }
       }
@@ -1044,10 +1099,10 @@
       }
     });
 
-    document.getElementById('submitHighscore').addEventListener('click', () => {
+    document.getElementById('submitHighscore').addEventListener('click', async () => {
       const input = document.getElementById('initialsInput');
       const initials = input.value.trim().toUpperCase().slice(0, 3) || 'AAA';
-      addHighscore(initials, score);
+      await addHighscore(initials, score);
       showHighscoreList();
     });
 
@@ -1078,7 +1133,10 @@
     });
 
     createBackground();
-    updateSidebarHighscoreList();
+    loadHighscores().then(scores => {
+      highscoreList = scores;
+      updateSidebarHighscoreList();
+    });
     resetGame();
   </script>
 </body>
